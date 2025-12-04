@@ -1,0 +1,104 @@
+<div class="graph-container">
+  <h2>Редактор графов (D3.js)</h2>
+
+  <div class="controls">
+    <div class="control-group">
+      <h3>Управление вершинами</h3>
+      <button (click)="addNode()">Добавить вершину</button>
+      <button (click)="deleteNode()" [disabled]="selectedNodeIds.length !== 1">
+        Удалить выбранную вершину
+      </button>
+    </div>
+
+    <div class="control-group">
+      <h3>Управление ребрами</h3>
+      <div class="input-group">
+        <label>Вес нового ребра: </label>
+        <input type="number" [(ngModel)]="newEdgeWeight" min="0" max="100" />
+      </div>
+      <div class="input-group">
+        <label>Направленное: </label>
+        <input type="checkbox" [(ngModel)]="newEdgeDirected" />
+      </div>
+      <button (click)="addEdge()" [disabled]="selectedNodeIds.length < 2">
+        @if (selectedNodeIds.length >= 2) {
+          Добавить ребро ({{ selectedNodeIds[0] }} ↔ {{ selectedNodeIds[1] }})
+        } @else {
+          Добавить ребро (выберите 2 вершины)
+        }
+      </button>
+
+      <div class="edge-controls">
+        <div class="selected-edge-info" *ngIf="selectedLinkId">
+          <strong>Выбрано ребро:</strong> {{ selectedLinkId }}
+          <div>Вес: {{ getSelectedEdgeWeight() }}</div>
+        </div>
+
+        <button (click)="updateEdgeWeight()" [disabled]="!selectedLinkId">
+          Изменить вес ребра
+        </button>
+        <button (click)="toggleEdgeDirection()" [disabled]="!selectedLinkId">
+          @if (isEdgeDirected(selectedLinkId)) {
+            Сделать ненаправленным
+          } @else {
+            Сделать направленным
+          }
+        </button>
+        <button (click)="deleteEdge()" [disabled]="!selectedLinkId">
+          Удалить ребро
+        </button>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <h3>Управление видом</h3>
+      <button (click)="centerView()">Центрировать граф</button>
+      <button (click)="clearSelection()">Снять выделение</button>
+    </div>
+
+    <div class="selection-info">
+      @if (selectedNodeIds.length > 0) {
+        <div>
+          <strong>Выбраны вершины:</strong> {{ selectedNodeIds.join(', ') }}
+        </div>
+      }
+
+      @if (selectedLinkId) {
+        <div>
+          <strong>Выбрано ребро:</strong> {{ selectedLinkId }}
+        </div>
+      }
+
+      @if (!selectedNodeIds.length && !selectedLinkId) {
+        <div>
+          Нажмите на вершины или ребра для выбора
+        </div>
+      }
+    </div>
+  </div>
+
+  <!-- Контейнер для D3 графа -->
+  <div #graphContainer class="chart-container"></div>
+
+  <div class="instructions">
+    <h3>Инструкция:</h3>
+    <ul>
+      <li><strong>Добавить вершину:</strong> Нажмите кнопку "Добавить вершину"</li>
+      <li><strong>Перетаскивание узлов:</strong> Зажмите и перетащите узел</li>
+      <li><strong>Выбрать вершины:</strong> Нажмите на вершины (до 2-х для соединения)</li>
+      <li><strong>Добавить ребро:</strong> Выберите 2 вершины, затем нажмите "Добавить ребро"</li>
+      <li><strong>Изменить вес ребра:</strong> Выберите ребро и нажмите "Изменить вес ребра"</li>
+      <li><strong>Изменить направление:</strong> Выберите ребро и нажмите кнопку направления</li>
+      <li><strong>Удалить:</strong> Выберите элемент и нажмите соответствующую кнопку "Удалить"</li>
+      <li><strong>Центрировать:</strong> Нажмите "Центрировать граф" если узлы ушли за границы</li>
+    </ul>
+
+    <h4>Особенности:</h4>
+    <ul>
+      <li>Узлы не могут выйти за пунктирную границу</li>
+      <li>Обратные ребра (A→B и B→A) отображаются со стрелками в разные стороны</li>
+      <li>Петли (ребро из узла в себя) отображаются как петли сверху</li>
+      <li>Можно создавать ненаправленные ребра (без стрелок)</li>
+    </ul>
+  </div>
+</div>
