@@ -1,6 +1,9 @@
 import { Component, ElementRef, ViewChild, AfterViewInit, OnDestroy } from '@angular/core';
 import * as d3 from 'd3';
-import {FormsModule} from '@angular/forms';
+import { FormsModule } from '@angular/forms';
+import { HttpService } from '../http-service';
+import {HttpClient, HttpClientModule} from '@angular/common/http';
+import { CommonModule } from '@angular/common';
 
 interface GraphNode extends d3.SimulationNodeDatum {
   id: string;
@@ -20,13 +23,50 @@ interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
   weight: number;
   directed: boolean;
   label: string;
+  highlighted?: boolean;
+}
+
+interface GraphRequest {
+  nodes: Array<{
+    id: string;
+    label: string;
+  }>;
+  edges: Array<{
+    id: string;
+    source: string;
+    target: string;
+    weight: number;
+    directed: boolean;
+  }>;
+}
+
+interface GraphResult {
+  nodes: Array<{ id: string; label: string }>;
+  edges: Array<{
+    id: string;
+    source: string;
+    target: string;
+    weight: number;
+    directed: boolean;
+    highlighted: boolean;
+  }>;
+  description: string;
+}
+
+interface GraphResponse {
+  originalGraph: GraphRequest;
+  resultGraphs?: GraphResult[];
+  algorithmResult?: any;
+  message?: string;
 }
 
 @Component({
   selector: 'app-graph',
   templateUrl: './graph.html',
   imports: [
-    FormsModule
+    FormsModule,
+    CommonModule,
+    HttpClientModule,
   ],
   styleUrls: ['./graph.css']
 })
@@ -36,13 +76,11 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
   private svg!: d3.Selection<SVGSVGElement, unknown, null, undefined>;
   private simulation!: d3.Simulation<GraphNode, GraphLink>;
   private nodeRadius = 25;
-  private margin = 50; // Отступ от краев
+  private margin = 50;
 
-  // Размеры области
   width = 1000;
   height = 600;
 
-  // Данные графа
   nodes: GraphNode[] = [
     { id: '1', label: '1', x: 200, y: 300 },
     { id: '2', label: '2', x: 400, y: 300 },
@@ -71,9 +109,15 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
   selectedNodeIds: string[] = [];
   selectedLinkId: string | null = null;
 
-  // Для двустороннего связывания
+  resultGraphs: GraphResult[] = [];
+  currentResultIndex: number = 0;
+  isLoading: boolean = false;
+  errorMessage: string | null = null;
+
   newEdgeWeight: number = 1;
   newEdgeDirected: boolean = true;
+
+  constructor(private httpService: HttpService) {}
 
   ngAfterViewInit() {
     this.initGraph();
@@ -87,18 +131,14 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
 
   private initGraph() {
     const container = this.container.nativeElement;
-
-    // Очищаем контейнер
     container.innerHTML = '';
 
-    // Создаем SVG
     this.svg = d3.select(container)
       .append('svg')
       .attr('width', this.width)
       .attr('height', this.height)
       .attr('viewBox', `0 0 ${this.width} ${this.height}`);
 
-    // Симуляция сил с ограничивающей рамкой
     this.simulation = d3.forceSimulation<GraphNode>(this.nodes)
       .force('link', d3.forceLink<GraphNode, GraphLink>(this.links)
         .id((d: GraphNode) => d.id)
@@ -108,11 +148,9 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
       .force('collision', d3.forceCollide().radius(this.nodeRadius + 10))
       .force('boundingBox', this.createBoundingBoxForce());
 
-    // Отрисовка графа
     this.renderGraph();
   }
 
-  // Создаем силу для удержания узлов в границах
   private createBoundingBoxForce() {
     return (alpha: number) => {
       const margin = this.margin;
@@ -123,16 +161,14 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
       this.nodes.forEach(node => {
         if (node.x === undefined || node.y === undefined) return;
 
-        // Проверяем границы по X
         if (node.x - radius < margin) {
           node.x = margin + radius;
-          if (node.vx) node.vx = -node.vx * 0.5; // Рикошет
+          if (node.vx) node.vx = -node.vx * 0.5;
         } else if (node.x + radius > width - margin) {
           node.x = width - margin - radius;
           if (node.vx) node.vx = -node.vx * 0.5;
         }
 
-        // Проверяем границы по Y
         if (node.y - radius < margin) {
           node.y = margin + radius;
           if (node.vy) node.vy = -node.vy * 0.5;
@@ -145,10 +181,8 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
   }
 
   private renderGraph() {
-    // Очищаем предыдущий граф
     this.svg.selectAll('*').remove();
 
-    // Добавляем границы области (для визуализации)
     this.svg.append('rect')
       .attr('x', this.margin)
       .attr('y', this.margin)
@@ -159,18 +193,20 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
       .attr('stroke-dasharray', '5,5')
       .attr('stroke-width', 1);
 
-    // Создаем группу для ссылок
     const linkGroup = this.svg.append('g').attr('class', 'links');
     const nodeGroup = this.svg.append('g').attr('class', 'nodes');
 
-    // Определения для стрелок
     const defs = this.svg.append('defs');
 
-    // Маркеры для разных направлений
-    ['', '-reverse', '-selected', '-reverse-selected'].forEach(suffix => {
+    ['', '-reverse', '-selected', '-reverse-selected', '-highlighted', '-reverse-highlighted'].forEach(suffix => {
       const isSelected = suffix.includes('selected');
+      const isHighlighted = suffix.includes('highlighted');
       const isReverse = suffix.includes('reverse');
       const id = `arrow${suffix}`;
+
+      let color = '#666';
+      if (isSelected) color = '#FF5722';
+      else if (isHighlighted) color = '#FF9800';
 
       defs.append('marker')
         .attr('id', id)
@@ -182,11 +218,10 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
         .attr('orient', 'auto')
         .append('path')
         .attr('d', 'M0,-4L8,0L0,4Z')
-        .attr('fill', isSelected ? '#FF5722' : '#666')
+        .attr('fill', color)
         .attr('transform', isReverse ? 'rotate(180)' : '');
     });
 
-    // Рисуем ссылки
     const link = linkGroup.selectAll('.link')
       .data(this.links)
       .enter()
@@ -195,39 +230,55 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
       .attr('id', (d: GraphLink) => `link-${d.id}`)
       .on('click', (event: MouseEvent, d: GraphLink) => this.selectLink(d.id));
 
-    // Линия ссылки
     link.append('path')
       .attr('class', 'line')
-      .attr('stroke', (d: GraphLink) => this.selectedLinkId === d.id ? '#FF5722' : '#666')
-      .attr('stroke-width', 3)
+      .attr('stroke', (d: GraphLink) => {
+        if (d.highlighted) return '#FF9800';
+        if (this.selectedLinkId === d.id) return '#FF5722';
+        return '#666';
+      })
+      .attr('stroke-width', (d: GraphLink) => d.highlighted ? 4 : 3)
       .attr('fill', 'none')
       .attr('marker-end', (d: GraphLink) => {
         if (!d.directed) return '';
         const isSelected = this.selectedLinkId === d.id;
+        const isHighlighted = d.highlighted;
         const isReverse = this.isReverseLink(d);
-        return `url(#arrow${isReverse ? '-reverse' : ''}${isSelected ? '-selected' : ''})`;
+
+        if (isHighlighted) {
+          return `url(#arrow${isReverse ? '-reverse' : ''}-highlighted)`;
+        } else if (isSelected) {
+          return `url(#arrow${isReverse ? '-reverse' : ''}-selected)`;
+        } else {
+          return `url(#arrow${isReverse ? '-reverse' : ''})`;
+        }
       });
 
-    // Фон для метки
     link.append('circle')
       .attr('class', 'label-background')
       .attr('r', 14)
-      .attr('fill', 'white')
-      .attr('stroke', (d: GraphLink) => this.selectedLinkId === d.id ? '#FF5722' : '#E91E63')
+      .attr('fill', (d: GraphLink) => d.highlighted ? '#FFF3E0' : 'white')
+      .attr('stroke', (d: GraphLink) => {
+        if (d.highlighted) return '#FF9800';
+        if (this.selectedLinkId === d.id) return '#FF5722';
+        return '#E91E63';
+      })
       .attr('stroke-width', 2);
 
-    // Вес ребра
     link.append('text')
       .attr('class', 'edge-label')
       .text((d: GraphLink) => d.label)
       .attr('text-anchor', 'middle')
       .attr('dominant-baseline', 'central')
-      .attr('fill', (d: GraphLink) => this.selectedLinkId === d.id ? '#FF5722' : '#E91E63')
+      .attr('fill', (d: GraphLink) => {
+        if (d.highlighted) return '#FF9800';
+        if (this.selectedLinkId === d.id) return '#FF5722';
+        return '#E91E63';
+      })
       .attr('font-weight', 'bold')
       .attr('font-size', '12px')
       .attr('pointer-events', 'none');
 
-    // Рисуем узлы
     const node = nodeGroup.selectAll('.node')
       .data(this.nodes)
       .enter()
@@ -242,14 +293,12 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
       )
       .on('click', (event: MouseEvent, d: GraphNode) => this.selectNode(d.id));
 
-    // Круг узла
     node.append('circle')
       .attr('r', this.nodeRadius)
       .attr('fill', (d: GraphNode) => this.selectedNodeIds.includes(d.id) ? '#4CAF50' : '#2196F3')
       .attr('stroke', '#333')
       .attr('stroke-width', 2);
 
-    // Текст узла
     node.append('text')
       .text((d: GraphNode) => d.label)
       .attr('text-anchor', 'middle')
@@ -259,54 +308,19 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
       .attr('font-weight', 'bold')
       .attr('pointer-events', 'none');
 
-    // Обновление позиций при тиках симуляции
     this.simulation.on('tick', () => {
       this.updatePositions(link, node);
     });
 
-    // Центрируем граф
     this.centerGraph();
-  }
-
-  // Центрирование графа
-  private centerGraph() {
-    if (this.nodes.length === 0) return;
-
-    // Находим границы
-    let minX = Infinity, maxX = -Infinity;
-    let minY = Infinity, maxY = -Infinity;
-
-    this.nodes.forEach(node => {
-      if (node.x && node.x < minX) minX = node.x;
-      if (node.x && node.x > maxX) maxX = node.x;
-      if (node.y && node.y < minY) minY = node.y;
-      if (node.y && node.y > maxY) maxY = node.y;
-    });
-
-    // Центрируем
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
-    const offsetX = this.width / 2 - centerX;
-    const offsetY = this.height / 2 - centerY;
-
-    this.nodes.forEach(node => {
-      if (node.x) node.x += offsetX;
-      if (node.y) node.y += offsetY;
-      if (node.fx) node.fx += offsetX;
-      if (node.fy) node.fy += offsetY;
-    });
-
-    this.simulation.alpha(0.3).restart();
   }
 
   private updatePositions(
     link: d3.Selection<SVGGElement, GraphLink, SVGGElement, unknown>,
     node: d3.Selection<SVGGElement, GraphNode, SVGGElement, unknown>
   ) {
-    // Обновляем позиции узлов
     node.attr('transform', (d: GraphNode) => `translate(${d.x || 0},${d.y || 0})`);
 
-    // Обновляем линии и метки
     link.each((d: GraphLink, i: number, groups: SVGGElement[] | ArrayLike<SVGGElement>) => {
       const linkElement = groups[i] as SVGGElement;
       const source = d.source as GraphNode;
@@ -314,13 +328,11 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
 
       if (!source.x || !source.y || !target.x || !target.y) return;
 
-      // Вычисляем вектор направления
       const dx = target.x - source.x;
       const dy = target.y - source.y;
       const distance = Math.sqrt(dx * dx + dy * dy);
 
       if (distance === 0) {
-        // Если узлы на одной точке (обратное ребро)
         this.updateSelfLoop(linkElement, source, d);
         return;
       }
@@ -328,25 +340,21 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
       const nx = dx / distance;
       const ny = dy / distance;
 
-      // Точки на границах узлов
       const startX = source.x + nx * this.nodeRadius;
       const startY = source.y + ny * this.nodeRadius;
       const endX = target.x - nx * this.nodeRadius;
       const endY = target.y - ny * this.nodeRadius;
 
-      // Обновляем линию
       const line = d3.select(linkElement).select<SVGPathElement>('.line');
       line.attr('d', `M${startX},${startY} L${endX},${endY}`);
 
-      // Обновляем позицию метки - СМЕЩАЕМ В СТОРОНУ от центра линии
       const labelBg = d3.select(linkElement).select<SVGCircleElement>('.label-background');
       const text = d3.select(linkElement).select<SVGTextElement>('.edge-label');
 
       const middleX = (startX + endX) / 2;
       const middleY = (startY + endY) / 2;
 
-      // Смещаем метку перпендикулярно линии на 15 пикселей
-      const offset = 35;
+      const offset = 15;
       const perpX = -ny * offset;
       const perpY = nx * offset;
 
@@ -360,18 +368,9 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
       text
         .attr('x', labelX)
         .attr('y', labelY);
-
-      // Обновляем маркер для направленных ребер
-      if (d.directed) {
-        const markerEnd = `url(#arrow${this.isReverseLink(d) ? '-reverse' : ''}${this.selectedLinkId === d.id ? '-selected' : ''})`;
-        line.attr('marker-end', markerEnd);
-      } else {
-        line.attr('marker-end', '');
-      }
     });
   }
 
-  // Обработка обратных ребер (петли)
   private updateSelfLoop(linkElement: SVGGElement, node: GraphNode, link: GraphLink) {
     if (!node.x || !node.y) return;
 
@@ -379,7 +378,6 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
     const labelBg = d3.select(linkElement).select<SVGCircleElement>('.label-background');
     const text = d3.select(linkElement).select<SVGTextElement>('.edge-label');
 
-    // Рисуем петлю
     const loopSize = 50;
     const loopX = node.x;
     const loopY = node.y - this.nodeRadius - 20;
@@ -391,7 +389,6 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
        ${node.x},${node.y - this.nodeRadius}
     `);
 
-    // Позиционируем метку над петлей
     labelBg
       .attr('cx', loopX)
       .attr('cy', loopY - 15);
@@ -401,7 +398,6 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
       .attr('y', loopY - 15);
   }
 
-  // Проверка на обратное ребро (A -> B и B -> A одновременно)
   private isReverseLink(link: GraphLink): boolean {
     const reverseLink = this.links.find(l =>
       l.id !== link.id &&
@@ -411,7 +407,6 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
     return !!reverseLink;
   }
 
-  // Проверка на петлю (узел ссылается сам на себя)
   private isSelfLoop(link: GraphLink): boolean {
     return link.source === link.target;
   }
@@ -433,7 +428,6 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
     d.fy = null;
   }
 
-  // Методы управления графом
   selectNode(nodeId: string, event?: MouseEvent) {
     if (event) event.stopPropagation();
 
@@ -486,7 +480,6 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
 
     if (!sourceNode || !targetNode) return;
 
-    // Проверяем, нет ли уже такого ребра
     const existingEdge = this.links.find(l =>
       l.source === sourceNode && l.target === targetNode
     );
@@ -557,10 +550,7 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
     const nodeToDelete = this.nodes.find(n => n.id === nodeId);
 
     if (nodeToDelete) {
-      // Удаляем узел
       this.nodes = this.nodes.filter(n => n.id !== nodeId);
-
-      // Удаляем все связанные ребра
       this.links = this.links.filter(e =>
         e.source !== nodeToDelete && e.target !== nodeToDelete
       );
@@ -584,7 +574,6 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
   }
 
   private updateGraph() {
-    // Пересоздаем симуляцию с новыми данными
     if (this.simulation) {
       this.simulation.stop();
     }
@@ -598,7 +587,6 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
       .force('collision', d3.forceCollide().radius(this.nodeRadius + 10))
       .force('boundingBox', this.createBoundingBoxForce());
 
-    // Перерисовываем граф
     this.renderGraph();
   }
 
@@ -608,23 +596,145 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
     this.updateGraph();
   }
 
-  // Кнопка центрирования
   centerView() {
     this.centerGraph();
     this.updateGraph();
   }
 
-  // Вспомогательный метод для шаблона
+  private centerGraph() {
+    if (this.nodes.length === 0) return;
+
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+
+    this.nodes.forEach(node => {
+      if (node.x && node.x < minX) minX = node.x;
+      if (node.x && node.x > maxX) maxX = node.x;
+      if (node.y && node.y < minY) minY = node.y;
+      if (node.y && node.y > maxY) maxY = node.y;
+    });
+
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    const offsetX = this.width / 2 - centerX;
+    const offsetY = this.height / 2 - centerY;
+
+    this.nodes.forEach(node => {
+      if (node.x) node.x += offsetX;
+      if (node.y) node.y += offsetY;
+      if (node.fx) node.fx += offsetX;
+      if (node.fy) node.fy += offsetY;
+    });
+
+    this.simulation.alpha(0.3).restart();
+  }
+
   isEdgeDirected(edgeId: string | null): boolean {
     if (!edgeId) return false;
     const edge = this.links.find(e => e.id === edgeId);
     return edge?.directed || false;
   }
 
-  // Получить текущий вес выбранного ребра
   getSelectedEdgeWeight(): string {
     if (!this.selectedLinkId) return '';
     const edge = this.links.find(e => e.id === this.selectedLinkId);
     return edge ? edge.weight.toString() : '';
+  }
+
+  // НОВАЯ ФУНКЦИЯ - ОТПРАВКА ГРАФА НА СЕРВЕР
+  solveGraph() {
+    this.isLoading = true;
+    this.errorMessage = null;
+    this.resultGraphs = [];
+    this.currentResultIndex = 0;
+
+    const graphData: GraphRequest = {
+      nodes: this.nodes.map(node => ({
+        id: node.id,
+        label: node.label
+      })),
+      edges: this.links.map(link => ({
+        id: link.id,
+        source: (link.source as GraphNode).id,
+        target: (link.target as GraphNode).id,
+        weight: link.weight,
+        directed: link.directed
+      }))
+    };
+
+    this.httpService.post<GraphRequest, GraphResponse>('/graph/solve', graphData)
+      .subscribe({
+        next: (response) => {
+          this.isLoading = false;
+
+          if (response.resultGraphs && response.resultGraphs.length > 0) {
+            this.resultGraphs = response.resultGraphs;
+            this.currentResultIndex = 0;
+            this.applyGraphResult(this.resultGraphs[0]);
+          } else {
+            this.errorMessage = response.message || 'Нет результатов для отображения';
+          }
+        },
+        error: (error) => {
+          this.isLoading = false;
+          this.errorMessage = `Ошибка при отправке данных: ${error.message || 'Неизвестная ошибка'}`;
+          console.error('Ошибка при отправке графа:', error);
+        }
+      });
+  }
+
+  // НОВАЯ ФУНКЦИЯ - ПРИМЕНЕНИЕ РЕЗУЛЬТАТА (ИСПРАВЛЕН ТИП)
+  private applyGraphResult(resultGraph: GraphResult) {
+    if (!resultGraph) return;
+
+    this.links.forEach(link => {
+      link.highlighted = false;
+    });
+
+    resultGraph.edges.forEach((resultEdge: { id: string; highlighted: boolean }) => {
+      const link = this.links.find(l => l.id === resultEdge.id);
+      if (link) {
+        link.highlighted = resultEdge.highlighted;
+      }
+    });
+
+    this.updateGraph();
+  }
+
+  // НОВЫЕ ФУНКЦИИ ДЛЯ НАВИГАЦИИ ПО РЕЗУЛЬТАТАМ
+  showNextResult() {
+    if (this.resultGraphs && this.resultGraphs.length > 0) {
+      this.currentResultIndex = (this.currentResultIndex + 1) % this.resultGraphs.length;
+      this.applyGraphResult(this.resultGraphs[this.currentResultIndex]);
+    }
+  }
+
+  showPreviousResult() {
+    if (this.resultGraphs && this.resultGraphs.length > 0) {
+      this.currentResultIndex = this.currentResultIndex === 0
+        ? this.resultGraphs.length - 1
+        : this.currentResultIndex - 1;
+      this.applyGraphResult(this.resultGraphs[this.currentResultIndex]);
+    }
+  }
+
+  // НОВАЯ ФУНКЦИЯ - СБРОС РЕЗУЛЬТАТОВ
+  clearResults() {
+    this.resultGraphs = [];
+    this.currentResultIndex = 0;
+    this.links.forEach(link => {
+      link.highlighted = false;
+    });
+    this.updateGraph();
+  }
+
+  // НОВАЯ ФУНКЦИЯ - ПОЛУЧЕНИЕ ОПИСАНИЯ РЕЗУЛЬТАТА
+  getCurrentResultDescription(): string {
+    if (!this.resultGraphs || this.resultGraphs.length === 0) {
+      return 'Нет результатов';
+    }
+
+    const currentResult = this.resultGraphs[this.currentResultIndex];
+    return currentResult.description || `Результат ${this.currentResultIndex + 1} из ${this.resultGraphs.length}`;
   }
 }
