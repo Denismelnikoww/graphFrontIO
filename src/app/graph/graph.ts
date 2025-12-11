@@ -2,7 +2,7 @@ import { Component, ElementRef, ViewChild, AfterViewInit, OnDestroy } from '@ang
 import * as d3 from 'd3';
 import { FormsModule } from '@angular/forms';
 import { HttpService } from '../http-service';
-import {HttpClient, HttpClientModule} from '@angular/common/http';
+import { HttpClientModule } from '@angular/common/http';
 import { CommonModule } from '@angular/common';
 
 interface GraphNode extends d3.SimulationNodeDatum {
@@ -38,6 +38,7 @@ interface GraphRequest {
     weight: number;
     directed: boolean;
   }>;
+  algorithm: string;
 }
 
 interface GraphResult {
@@ -60,6 +61,13 @@ interface GraphResponse {
   message?: string;
 }
 
+interface AlgorithmOption {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+}
+
 @Component({
   selector: 'app-graph',
   templateUrl: './graph.html',
@@ -78,7 +86,7 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
   private nodeRadius = 25;
   private margin = 50;
 
-  width = 1000;
+  width = 1200;
   height = 600;
 
   nodes: GraphNode[] = [
@@ -109,6 +117,22 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
   selectedNodeIds: string[] = [];
   selectedLinkId: string | null = null;
 
+  algorithms: AlgorithmOption[] = [
+    { id: 'bfs', name: 'Поиск в ширину (BFS)', category: 'Быстрые алгоритмы', description: 'Обход графа в ширину' },
+    { id: 'dfs', name: 'Поиск в глубину (DFS)', category: 'Быстрые алгоритмы', description: 'Обход графа в глубину' },
+    { id: 'topological', name: 'Топологическая сортировка', category: 'Быстрые алгоритмы', description: 'Упорядочивание вершин ориентированного графа' },
+    { id: 'prim', name: 'Алгоритм Прима', category: 'Минимальное остовное дерево', description: 'Построение минимального остовного дерева' },
+    { id: 'kruskal', name: 'Алгоритм Крускала', category: 'Минимальное остовное дерево', description: 'Построение минимального остовного дерева' },
+    { id: 'dijkstra', name: 'Алгоритм Дейкстры', category: 'Кратчайшие пути', description: 'Поиск кратчайших путей от одной вершины' },
+    { id: 'bellman-ford', name: 'Алгоритм Беллмана-Форда', category: 'Кратчайшие пути', description: 'Поиск кратчайших путей с отрицательными весами' },
+    { id: 'ford-fulkerson', name: 'Алгоритм Форда-Фалкерсона', category: 'Потоки в сетях', description: 'Поиск максимального потока в сети' },
+    { id: 'articulation', name: 'Точки сочленения', category: 'Связность', description: 'Поиск точек сочленения графа' },
+    { id: 'bridges', name: 'Мосты графа', category: 'Связность', description: 'Поиск мостов графа' }
+  ];
+
+  selectedAlgorithm: string = 'bfs';
+  groupedAlgorithms: Map<string, AlgorithmOption[]> = new Map();
+
   resultGraphs: GraphResult[] = [];
   currentResultIndex: number = 0;
   isLoading: boolean = false;
@@ -117,7 +141,19 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
   newEdgeWeight: number = 1;
   newEdgeDirected: boolean = true;
 
-  constructor(private httpService: HttpService) {}
+  constructor(private httpService: HttpService) {
+    this.groupAlgorithmsByCategory();
+  }
+
+  private groupAlgorithmsByCategory() {
+    this.groupedAlgorithms.clear();
+    this.algorithms.forEach(algorithm => {
+      if (!this.groupedAlgorithms.has(algorithm.category)) {
+        this.groupedAlgorithms.set(algorithm.category, []);
+      }
+      this.groupedAlgorithms.get(algorithm.category)!.push(algorithm);
+    });
+  }
 
   ngAfterViewInit() {
     this.initGraph();
@@ -152,7 +188,7 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
   }
 
   private createBoundingBoxForce() {
-    return (alpha: number) => {
+    return () => {
       const margin = this.margin;
       const width = this.width;
       const height = this.height;
@@ -182,16 +218,6 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
 
   private renderGraph() {
     this.svg.selectAll('*').remove();
-
-    this.svg.append('rect')
-      .attr('x', this.margin)
-      .attr('y', this.margin)
-      .attr('width', this.width - 2 * this.margin)
-      .attr('height', this.height - 2 * this.margin)
-      .attr('fill', 'none')
-      .attr('stroke', '#eee')
-      .attr('stroke-dasharray', '5,5')
-      .attr('stroke-width', 1);
 
     const linkGroup = this.svg.append('g').attr('class', 'links');
     const nodeGroup = this.svg.append('g').attr('class', 'nodes');
@@ -315,6 +341,12 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
     this.centerGraph();
   }
 
+  isEdgeDirected(edgeId: string | null): boolean {
+    if (!edgeId) return false;
+    const edge = this.links.find(e => e.id === edgeId);
+    return edge?.directed || false;
+  }
+
   private updatePositions(
     link: d3.Selection<SVGGElement, GraphLink, SVGGElement, unknown>,
     node: d3.Selection<SVGGElement, GraphNode, SVGGElement, unknown>
@@ -405,10 +437,6 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
       l.target === link.source
     );
     return !!reverseLink;
-  }
-
-  private isSelfLoop(link: GraphLink): boolean {
-    return link.source === link.target;
   }
 
   private dragStarted(event: d3.D3DragEvent<SVGGElement, GraphNode, GraphNode>, d: GraphNode) {
@@ -596,12 +624,7 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
     this.updateGraph();
   }
 
-  centerView() {
-    this.centerGraph();
-    this.updateGraph();
-  }
-
-  private centerGraph() {
+  centerGraph() {
     if (this.nodes.length === 0) return;
 
     let minX = Infinity, maxX = -Infinity;
@@ -629,20 +652,18 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
     this.simulation.alpha(0.3).restart();
   }
 
-  isEdgeDirected(edgeId: string | null): boolean {
-    if (!edgeId) return false;
-    const edge = this.links.find(e => e.id === edgeId);
-    return edge?.directed || false;
-  }
-
   getSelectedEdgeWeight(): string {
     if (!this.selectedLinkId) return '';
     const edge = this.links.find(e => e.id === this.selectedLinkId);
     return edge ? edge.weight.toString() : '';
   }
 
-  // НОВАЯ ФУНКЦИЯ - ОТПРАВКА ГРАФА НА СЕРВЕР
   solveGraph() {
+    if (!this.selectedAlgorithm) {
+      alert('Выберите алгоритм для выполнения');
+      return;
+    }
+
     this.isLoading = true;
     this.errorMessage = null;
     this.resultGraphs = [];
@@ -659,7 +680,8 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
         target: (link.target as GraphNode).id,
         weight: link.weight,
         directed: link.directed
-      }))
+      })),
+      algorithm: this.selectedAlgorithm
     };
 
     this.httpService.post<GraphRequest, GraphResponse>('/graph/solve', graphData)
@@ -671,8 +693,10 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
             this.resultGraphs = response.resultGraphs;
             this.currentResultIndex = 0;
             this.applyGraphResult(this.resultGraphs[0]);
+          } else if (response.message) {
+            this.errorMessage = response.message;
           } else {
-            this.errorMessage = response.message || 'Нет результатов для отображения';
+            this.errorMessage = 'Нет результатов для отображения';
           }
         },
         error: (error) => {
@@ -683,7 +707,6 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
       });
   }
 
-  // НОВАЯ ФУНКЦИЯ - ПРИМЕНЕНИЕ РЕЗУЛЬТАТА (ИСПРАВЛЕН ТИП)
   private applyGraphResult(resultGraph: GraphResult) {
     if (!resultGraph) return;
 
@@ -701,7 +724,6 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
     this.updateGraph();
   }
 
-  // НОВЫЕ ФУНКЦИИ ДЛЯ НАВИГАЦИИ ПО РЕЗУЛЬТАТАМ
   showNextResult() {
     if (this.resultGraphs && this.resultGraphs.length > 0) {
       this.currentResultIndex = (this.currentResultIndex + 1) % this.resultGraphs.length;
@@ -718,7 +740,6 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  // НОВАЯ ФУНКЦИЯ - СБРОС РЕЗУЛЬТАТОВ
   clearResults() {
     this.resultGraphs = [];
     this.currentResultIndex = 0;
@@ -728,7 +749,6 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
     this.updateGraph();
   }
 
-  // НОВАЯ ФУНКЦИЯ - ПОЛУЧЕНИЕ ОПИСАНИЯ РЕЗУЛЬТАТА
   getCurrentResultDescription(): string {
     if (!this.resultGraphs || this.resultGraphs.length === 0) {
       return 'Нет результатов';
@@ -736,5 +756,15 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
 
     const currentResult = this.resultGraphs[this.currentResultIndex];
     return currentResult.description || `Результат ${this.currentResultIndex + 1} из ${this.resultGraphs.length}`;
+  }
+
+  getSelectedAlgorithmName(): string {
+    const algo = this.algorithms.find(a => a.id === this.selectedAlgorithm);
+    return algo ? algo.name : 'Выберите алгоритм';
+  }
+
+  getSelectedAlgorithmDescription(): string {
+    const algo = this.algorithms.find(a => a.id === this.selectedAlgorithm);
+    return algo ? algo.description : '';
   }
 }

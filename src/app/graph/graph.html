@@ -1,7 +1,76 @@
 <div class="graph-container">
-  <h2>Редактор графов (D3.js)</h2>
+  <h2>Редактор графов</h2>
 
   <div class="controls">
+    <div class="control-group algorithm-section">
+      <h3>Алгоритмы на графах</h3>
+
+      <div class="algorithm-selection">
+        <div class="algorithm-info">
+          <div class="selected-algorithm">
+            <strong>Выбран алгоритм:</strong> {{ getSelectedAlgorithmName() }}
+          </div>
+          <div class="algorithm-description">
+            {{ getSelectedAlgorithmDescription() }}
+          </div>
+        </div>
+
+        <div class="algorithm-controls">
+          <div class="dropdown-container">
+            <select [(ngModel)]="selectedAlgorithm" class="algorithm-dropdown">
+              <option *ngFor="let category of groupedAlgorithms.keys()" [ngValue]="null" disabled>
+                === {{ category }} ===
+              </option>
+              <ng-container *ngFor="let category of groupedAlgorithms.keys()">
+                <option *ngFor="let algo of groupedAlgorithms.get(category)" [value]="algo.id">
+                  {{ algo.name }}
+                </option>
+              </ng-container>
+            </select>
+
+            <button (click)="solveGraph()" [disabled]="isLoading" class="solve-button">
+              @if (isLoading) {
+                <span class="spinner"></span> Выполняется...
+              } @else {
+                Решить
+              }
+            </button>
+          </div>
+        </div>
+
+        <div class="results-section" *ngIf="resultGraphs && resultGraphs.length > 0">
+          <h4>Результаты выполнения:</h4>
+          <div class="result-info">
+            <div class="result-description">
+              {{ getCurrentResultDescription() }}
+            </div>
+
+            <div class="result-navigation">
+              <button (click)="showPreviousResult()" [disabled]="resultGraphs.length <= 1">
+                ← Предыдущий
+              </button>
+              <span class="result-counter">
+                {{ currentResultIndex + 1 }} / {{ resultGraphs.length }}
+              </span>
+              <button (click)="showNextResult()" [disabled]="resultGraphs.length <= 1">
+                Следующий →
+              </button>
+            </div>
+
+            <button (click)="clearResults()" class="clear-results">
+              Очистить результаты
+            </button>
+          </div>
+        </div>
+
+        <div class="error-message" *ngIf="errorMessage">
+          <div class="error-alert">
+            ⚠️ {{ errorMessage }}
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="control-group">
       <h3>Управление вершинами</h3>
       <button (click)="addNode()">Добавить вершину</button>
@@ -52,7 +121,7 @@
 
     <div class="control-group">
       <h3>Управление видом</h3>
-      <button (click)="centerView()">Центрировать граф</button>
+      <button (click)="centerGraph()">Центрировать граф</button>
       <button (click)="clearSelection()">Снять выделение</button>
     </div>
 
@@ -77,7 +146,5 @@
     </div>
   </div>
 
-  <!-- Контейнер для D3 графа -->
   <div #graphContainer class="chart-container"></div>
-
 </div>
