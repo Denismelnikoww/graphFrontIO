@@ -887,7 +887,7 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    // Оригинальная логика выбора вершин
+    // Оригинальная логика выбора вершин (для добавления ребер)
     if (this.selectedNodeIds.includes(nodeId)) {
       this.selectedNodeIds = this.selectedNodeIds.filter(id => id !== nodeId);
     } else {
@@ -901,9 +901,10 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
     this.updateGraph();
   }
 
-  public shouldSelectStartOrEndNode(): boolean {
-    return this.selectedAlgorithm === 'dijkstra' ||
-      this.selectedAlgorithm === 'bfs' ||
+  private shouldSelectStartOrEndNode(): boolean {
+    // BFS, Dijkstra и Ford-Fulkerson требуют выбора вершин
+    return this.selectedAlgorithm === 'bfs' ||
+      this.selectedAlgorithm === 'dijkstra' ||
       this.selectedAlgorithm === 'ford-fulkerson';
   }
 
@@ -911,34 +912,39 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
     const node = this.nodes.find(n => n.id === nodeId);
     if (!node) return;
 
-    if (this.selectedAlgorithm === 'dijkstra' || this.selectedAlgorithm === 'bfs') {
+    if (this.selectedAlgorithm === 'bfs' || this.selectedAlgorithm === 'dijkstra') {
+      // Для BFS и Dijkstra выбираем только начальную вершину
       if (this.selectedStartNodeId === nodeId) {
-        this.selectedStartNodeId = null;
+        this.selectedStartNodeId = null; // Снимаем выделение
       } else {
-        this.selectedStartNodeId = nodeId;
-        this.selectedEndNodeId = null; // Сбрасываем конечную вершину, если выбрана начальная
+        this.selectedStartNodeId = nodeId; // Выбираем новую вершину
+        this.selectedEndNodeId = null; // Сбрасываем конечную (если была)
       }
     } else if (this.selectedAlgorithm === 'ford-fulkerson') {
+      // Для Ford-Fulkerson выбираем начальную и конечную вершины
       if (!this.selectedStartNodeId) {
-        this.selectedStartNodeId = nodeId;
+        this.selectedStartNodeId = nodeId; // Выбираем источник
       } else if (!this.selectedEndNodeId && this.selectedStartNodeId !== nodeId) {
-        this.selectedEndNodeId = nodeId;
+        this.selectedEndNodeId = nodeId; // Выбираем сток (нельзя совпадать с источником)
       } else if (this.selectedStartNodeId === nodeId) {
-        this.selectedStartNodeId = null;
+        this.selectedStartNodeId = null; // Снимаем выделение с источника
       } else if (this.selectedEndNodeId === nodeId) {
-        this.selectedEndNodeId = null;
+        this.selectedEndNodeId = null; // Снимаем выделение со стока
       }
     }
 
+    this.selectedNodeIds = []; // Очищаем обычное выделение вершин
+    this.selectedLinkId = null; // Очищаем выделение ребра
     this.updateGraph();
   }
 
   clearAlgorithmSelection() {
     this.selectedStartNodeId = null;
     this.selectedEndNodeId = null;
+    this.selectedNodeIds = []; // Также очищаем обычное выделение
+    this.selectedLinkId = null;
     this.updateGraph();
   }
-
   selectLink(linkId: string, event?: MouseEvent) {
     if (event) event.stopPropagation();
 
@@ -1273,13 +1279,14 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
 
   getSelectedAlgorithmDescription(): string {
     const descriptions: {[key: string]: string} = {
-      'bfs': 'Обход графа в ширину от первой вершины',
+      'bfs': 'Обход графа в ширину от выбранной вершины',
       'prim': 'Построение минимального остовного дерева',
-      'dijkstra': 'Поиск кратчайших путей от одной вершины до всех остальных',
-      'ford-fulkerson': 'Поиск максимального потока в сети',
+      'dijkstra': 'Поиск кратчайших путей от выбранной вершины до всех остальных',
+      'ford-fulkerson': 'Поиск максимального потока в сети между выбранным источником и стоком',
       'bridges': 'Поиск мостов (ребер, удаление которых разрывает связность), блоков, точек раздела'
     };
 
     return descriptions[this.selectedAlgorithm] || '';
   }
+
 }
