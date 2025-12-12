@@ -1,150 +1,232 @@
 <div class="graph-container">
   <h2>Редактор графов</h2>
 
-  <div class="controls">
-    <div class="control-group algorithm-section">
-      <h3>Алгоритмы на графах</h3>
+  <div class="main-layout">
+    <!-- Левая колонка: граф -->
+    <div class="graph-column">
+      <div #graphContainer class="chart-container"></div>
+    </div>
 
-      <div class="algorithm-selection">
-        <div class="algorithm-info">
-          <div class="selected-algorithm">
-            <strong>Выбран алгоритм:</strong> {{ getSelectedAlgorithmName() }}
+    <!-- Правая колонка: панель управления -->
+    <div class="controls-column">
+      <!-- Блок для выбора графа -->
+      <div class="control-group preset-section">
+        <h3>Быстрые графы</h3>
+
+        <div class="preset-selection">
+          <div class="preset-info">
+            <div class="selected-preset">
+              <strong>Выбран граф:</strong> {{ getSelectedPresetName() }}
+            </div>
+            <div class="preset-description">
+              {{ getSelectedPresetDescription() }}
+            </div>
           </div>
-          <div class="algorithm-description">
-            {{ getSelectedAlgorithmDescription() }}
+
+          <div class="preset-controls">
+            <div class="dropdown-container">
+              <select [(ngModel)]="selectedPreset" class="preset-dropdown">
+                <option *ngFor="let preset of graphPresets" [value]="preset.id">
+                  {{ preset.name }}
+                </option>
+              </select>
+
+              <button (click)="loadPreset()" class="load-preset-button">
+                Построить граф
+              </button>
+            </div>
           </div>
         </div>
+      </div>
 
-        <div class="algorithm-controls">
-          <div class="dropdown-container">
-            <select [(ngModel)]="selectedAlgorithm" class="algorithm-dropdown">
-              <option *ngFor="let category of groupedAlgorithms.keys()" [ngValue]="null" disabled>
-                === {{ category }} ===
-              </option>
-              <ng-container *ngFor="let category of groupedAlgorithms.keys()">
-                <option *ngFor="let algo of groupedAlgorithms.get(category)" [value]="algo.id">
+      <div class="control-group algorithm-section">
+        <h3>Алгоритмы на графах</h3>
+
+        <div class="algorithm-selection">
+          <div class="algorithm-info">
+            <div class="selected-algorithm">
+              <strong>Выбран алгоритм:</strong> {{ getSelectedAlgorithmName() }}
+            </div>
+            <div class="algorithm-description">
+              {{ getSelectedAlgorithmDescription() }}
+            </div>
+          </div>
+
+          <!-- Добавьте этот блок после выбора алгоритма -->
+          <div class="control-group algorithm-selection-section" *ngIf="shouldSelectStartOrEndNode()">
+            <h3>Выбор вершин для алгоритма</h3>
+
+            <div class="algorithm-node-selection">
+              <div class="selection-info">
+                <div *ngIf="selectedAlgorithm === 'dijkstra' || selectedAlgorithm === 'bfs'">
+                  <p><strong>Для алгоритма {{ getSelectedAlgorithmName() }}:</strong></p>
+                  <p>Выберите начальную вершину</p>
+                  <div *ngIf="selectedStartNodeId" class="selected-node-info">
+                    Выбрана начальная вершина: <strong>{{ selectedStartNodeId }}</strong>
+                  </div>
+                </div>
+
+                <div *ngIf="selectedAlgorithm === 'ford-fulkerson'">
+                  <p><strong>Для алгоритма Форда-Фалкерсона:</strong></p>
+                  <p>Выберите начальную (источник) и конечную (сток) вершины</p>
+                  <div *ngIf="selectedStartNodeId || selectedEndNodeId" class="selected-node-info">
+                    <div *ngIf="selectedStartNodeId">Источник: <strong>{{ selectedStartNodeId }}</strong></div>
+                    <div *ngIf="selectedEndNodeId">Сток: <strong>{{ selectedEndNodeId }}</strong></div>
+                  </div>
+                </div>
+              </div>
+
+              <button (click)="clearAlgorithmSelection()"
+                      [disabled]="!selectedStartNodeId && !selectedEndNodeId"
+                      class="clear-algorithm-selection">
+                Сбросить выбор вершин
+              </button>
+
+              <div class="selection-hint">
+                <p>💡 <em>Нажмите на вершины графа для выбора</em></p>
+                <div class="legend">
+                  <div class="legend-item">
+                    <span class="legend-color" style="background-color: #4CAF50;"></span>
+                    <span>Начальная вершина</span>
+                  </div>
+                  <div *ngIf="selectedAlgorithm === 'ford-fulkerson'" class="legend-item">
+                    <span class="legend-color" style="background-color: #F44336;"></span>
+                    <span>Конечная вершина</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="algorithm-controls">
+            <div class="dropdown-container">
+              <!-- Простой список алгоритмов без группировки -->
+              <select [(ngModel)]="selectedAlgorithm" class="algorithm-dropdown">
+                <option *ngFor="let algo of algorithms" [value]="algo.id">
                   {{ algo.name }}
                 </option>
-              </ng-container>
-            </select>
+              </select>
 
-            <button (click)="solveGraph()" [disabled]="isLoading" class="solve-button">
-              @if (isLoading) {
-                <span class="spinner"></span> Выполняется...
-              } @else {
-                Решить
-              }
-            </button>
-          </div>
-        </div>
-
-        <div class="results-section" *ngIf="resultGraphs && resultGraphs.length > 0">
-          <h4>Результаты выполнения:</h4>
-          <div class="result-info">
-            <div class="result-description">
-              {{ getCurrentResultDescription() }}
-            </div>
-
-            <div class="result-navigation">
-              <button (click)="showPreviousResult()" [disabled]="resultGraphs.length <= 1">
-                ← Предыдущий
-              </button>
-              <span class="result-counter">
-                {{ currentResultIndex + 1 }} / {{ resultGraphs.length }}
-              </span>
-              <button (click)="showNextResult()" [disabled]="resultGraphs.length <= 1">
-                Следующий →
+              <button (click)="solveGraph()" [disabled]="isLoading" class="solve-button">
+                @if (isLoading) {
+                  <span class="spinner"></span> Выполняется...
+                } @else {
+                  Решить
+                }
               </button>
             </div>
+          </div>
 
-            <button (click)="clearResults()" class="clear-results">
-              Очистить результаты
-            </button>
+          <div class="results-section" *ngIf="resultGraphs && resultGraphs.length > 0">
+            <h4>Результаты выполнения:</h4>
+            <div class="result-info">
+              <div class="result-description">
+                {{ getCurrentResultDescription() }}
+              </div>
+
+              <div class="result-navigation">
+                <button (click)="showPreviousResult()" [disabled]="resultGraphs.length <= 1">
+                  ← Предыдущий
+                </button>
+                <span class="result-counter">
+                  {{ currentResultIndex + 1 }} / {{ resultGraphs.length }}
+                </span>
+                <button (click)="showNextResult()" [disabled]="resultGraphs.length <= 1">
+                  Следующий →
+                </button>
+              </div>
+
+              <button (click)="clearResults()" class="clear-results">
+                Очистить результаты
+              </button>
+            </div>
+          </div>
+
+          <div class="error-message" *ngIf="errorMessage">
+            <div class="error-alert">
+              ⚠️ {{ errorMessage }}
+            </div>
           </div>
         </div>
-
-        <div class="error-message" *ngIf="errorMessage">
-          <div class="error-alert">
-            ⚠️ {{ errorMessage }}
-          </div>
-        </div>
       </div>
-    </div>
 
-    <div class="control-group">
-      <h3>Управление вершинами</h3>
-      <button (click)="addNode()">Добавить вершину</button>
-      <button (click)="deleteNode()" [disabled]="selectedNodeIds.length !== 1">
-        Удалить выбранную вершину
-      </button>
-    </div>
-
-    <div class="control-group">
-      <h3>Управление ребрами</h3>
-      <div class="input-group">
-        <label>Вес нового ребра: </label>
-        <input type="number" [(ngModel)]="newEdgeWeight" min="0" max="100" />
-      </div>
-      <div class="input-group">
-        <label>Направленное: </label>
-        <input type="checkbox" [(ngModel)]="newEdgeDirected" />
-      </div>
-      <button (click)="addEdge()" [disabled]="selectedNodeIds.length < 2">
-        @if (selectedNodeIds.length >= 2) {
-          Добавить ребро ({{ selectedNodeIds[0] }} ↔ {{ selectedNodeIds[1] }})
-        } @else {
-          Добавить ребро (выберите 2 вершины)
-        }
-      </button>
-
-      <div class="edge-controls">
-        <div class="selected-edge-info" *ngIf="selectedLinkId">
-          <strong>Выбрано ребро:</strong> {{ selectedLinkId }}
-          <div>Вес: {{ getSelectedEdgeWeight() }}</div>
-        </div>
-
-        <button (click)="updateEdgeWeight()" [disabled]="!selectedLinkId">
-          Изменить вес ребра
+      <div class="control-group">
+        <h3>Управление вершинами</h3>
+        <button (click)="addNode()">Добавить вершину</button>
+        <button (click)="deleteNode()" [disabled]="selectedNodeIds.length !== 1">
+          Удалить выбранную вершину
         </button>
-        <button (click)="toggleEdgeDirection()" [disabled]="!selectedLinkId">
-          @if (isEdgeDirected(selectedLinkId)) {
-            Сделать ненаправленным
+        <button (click)="clearGraph()" class="clear-graph-button">
+          Очистить граф
+        </button>
+      </div>
+
+      <div class="control-group">
+        <h3>Управление ребрами</h3>
+        <div class="input-group">
+          <label>Вес нового ребра: </label>
+          <input type="number" [(ngModel)]="newEdgeWeight" min="0" max="100" />
+        </div>
+        <div class="input-group">
+          <label>Направленное: </label>
+          <input type="checkbox" [(ngModel)]="newEdgeDirected" />
+        </div>
+        <button (click)="addEdge()" [disabled]="selectedNodeIds.length < 2">
+          @if (selectedNodeIds.length >= 2) {
+            Добавить ребро ({{ selectedNodeIds[0] }} ↔ {{ selectedNodeIds[1] }})
           } @else {
-            Сделать направленным
+            Добавить ребро (выберите 2 вершины)
           }
         </button>
-        <button (click)="deleteEdge()" [disabled]="!selectedLinkId">
-          Удалить ребро
-        </button>
+
+        <div class="edge-controls">
+          <div class="selected-edge-info" *ngIf="selectedLinkId">
+            <strong>Выбрано ребро:</strong> {{ selectedLinkId }}
+            <div>Вес: {{ getSelectedEdgeWeight() }}</div>
+            <div>Направленное: {{ isEdgeDirected(selectedLinkId) ? 'Да' : 'Нет' }}</div>
+          </div>
+
+          <button (click)="updateEdgeWeight()" [disabled]="!selectedLinkId">
+            Изменить вес ребра
+          </button>
+          <button (click)="toggleEdgeDirection()" [disabled]="!selectedLinkId">
+            @if (isEdgeDirected(selectedLinkId)) {
+              Сделать ненаправленным
+            } @else {
+              Сделать направленным
+            }
+          </button>
+          <button (click)="deleteEdge()" [disabled]="!selectedLinkId">
+            Удалить ребро
+          </button>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <h3>Управление видом</h3>
+        <button (click)="centerGraph()">Центрировать граф</button>
+        <button (click)="clearSelection()">Снять выделение</button>
+      </div>
+
+      <div class="selection-info">
+        @if (selectedNodeIds.length > 0) {
+          <div>
+            <strong>Выбраны вершины:</strong> {{ selectedNodeIds.join(', ') }}
+          </div>
+        }
+
+        @if (selectedLinkId) {
+          <div>
+            <strong>Выбрано ребро:</strong> {{ selectedLinkId }}
+          </div>
+        }
+
+        @if (!selectedNodeIds.length && !selectedLinkId) {
+          <div>
+            Нажмите на вершины или ребра для выбора
+          </div>
+        }
       </div>
     </div>
-
-    <div class="control-group">
-      <h3>Управление видом</h3>
-      <button (click)="centerGraph()">Центрировать граф</button>
-      <button (click)="clearSelection()">Снять выделение</button>
-    </div>
-
-    <div class="selection-info">
-      @if (selectedNodeIds.length > 0) {
-        <div>
-          <strong>Выбраны вершины:</strong> {{ selectedNodeIds.join(', ') }}
-        </div>
-      }
-
-      @if (selectedLinkId) {
-        <div>
-          <strong>Выбрано ребро:</strong> {{ selectedLinkId }}
-        </div>
-      }
-
-      @if (!selectedNodeIds.length && !selectedLinkId) {
-        <div>
-          Нажмите на вершины или ребра для выбора
-        </div>
-      }
-    </div>
   </div>
-
-  <div #graphContainer class="chart-container"></div>
 </div>

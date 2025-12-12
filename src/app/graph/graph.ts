@@ -5,6 +5,23 @@ import { HttpService } from '../http-service';
 import { HttpClientModule } from '@angular/common/http';
 import { CommonModule } from '@angular/common';
 
+// Интерфейс для связи в предустановленных графах (храним только ID)
+interface PresetLink {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  weight: number;
+  directed: boolean;
+}
+
+interface GraphPreset {
+  id: string;
+  name: string;
+  description: string;
+  nodes: GraphNode[];
+  links: PresetLink[];
+}
+
 interface GraphNode extends d3.SimulationNodeDatum {
   id: string;
   label: string;
@@ -39,6 +56,8 @@ interface GraphRequest {
     directed: boolean;
   }>;
   algorithm: string;
+  startNodeId?: string;
+  endNodeId?: string;
 }
 
 interface GraphResult {
@@ -61,13 +80,6 @@ interface GraphResponse {
   message?: string;
 }
 
-interface AlgorithmOption {
-  id: string;
-  name: string;
-  category: string;
-  description: string;
-}
-
 @Component({
   selector: 'app-graph',
   templateUrl: './graph.html',
@@ -86,8 +98,11 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
   private nodeRadius = 25;
   private margin = 50;
 
-  width = 1200;
-  height = 600;
+  selectedStartNodeId: string | null = null;
+  selectedEndNodeId: string | null = null;
+
+  width = 1400;
+  height = 800;
 
   nodes: GraphNode[] = [
     { id: '1', label: '1', x: 200, y: 300 },
@@ -117,21 +132,160 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
   selectedNodeIds: string[] = [];
   selectedLinkId: string | null = null;
 
-  algorithms: AlgorithmOption[] = [
-    { id: 'bfs', name: 'Поиск в ширину (BFS)', category: 'Быстрые алгоритмы', description: 'Обход графа в ширину' },
-    { id: 'dfs', name: 'Поиск в глубину (DFS)', category: 'Быстрые алгоритмы', description: 'Обход графа в глубину' },
-    { id: 'topological', name: 'Топологическая сортировка', category: 'Быстрые алгоритмы', description: 'Упорядочивание вершин ориентированного графа' },
-    { id: 'prim', name: 'Алгоритм Прима', category: 'Минимальное остовное дерево', description: 'Построение минимального остовного дерева' },
-    { id: 'kruskal', name: 'Алгоритм Крускала', category: 'Минимальное остовное дерево', description: 'Построение минимального остовного дерева' },
-    { id: 'dijkstra', name: 'Алгоритм Дейкстры', category: 'Кратчайшие пути', description: 'Поиск кратчайших путей от одной вершины' },
-    { id: 'bellman-ford', name: 'Алгоритм Беллмана-Форда', category: 'Кратчайшие пути', description: 'Поиск кратчайших путей с отрицательными весами' },
-    { id: 'ford-fulkerson', name: 'Алгоритм Форда-Фалкерсона', category: 'Потоки в сетях', description: 'Поиск максимального потока в сети' },
-    { id: 'articulation', name: 'Точки сочленения', category: 'Связность', description: 'Поиск точек сочленения графа' },
-    { id: 'bridges', name: 'Мосты графа', category: 'Связность', description: 'Поиск мостов графа' }
+  graphPresets: GraphPreset[] = [
+    {
+      id: 'simple-triangle',
+      name: 'Простой треугольник',
+      description: 'Три вершины, соединенные в треугольник',
+      nodes: [
+        { id: '1', label: '1', x: 400, y: 200 },
+        { id: '2', label: '2', x: 200, y: 400 },
+        { id: '3', label: '3', x: 600, y: 400 }
+      ],
+      links: [
+        { id: 'e1', sourceId: '1', targetId: '2', weight: 5, directed: false },
+        { id: 'e2', sourceId: '2', targetId: '3', weight: 7, directed: false },
+        { id: 'e3', sourceId: '3', targetId: '1', weight: 3, directed: false }
+      ]
+    },
+    {
+      "id": "PVSH-BFS",
+      "name": "Граф для BFS (поиска в ширину)",
+      "description": "Девять вершин, соединённых последовательно в цепочку с дополнительными рёбрами для демонстрации BFS",
+      "nodes": [
+        { "id": "1", "label": "1", "x": 300, "y": 100 },
+        { "id": "2", "label": "2", "x": 500, "y": 100 },
+        { "id": "3", "label": "3", "x": 700, "y": 100 },
+        { "id": "4", "label": "4", "x": 1100, "y": 300 },
+        { "id": "5", "label": "5", "x": 300, "y": 300 },
+        { "id": "6", "label": "6", "x": 500, "y": 300 },
+        { "id": "7", "label": "7", "x": 700, "y": 300 },
+        { "id": "8", "label": "8", "x": 900, "y": 100 },
+        { "id": "9", "label": "9", "x": 900, "y": 300 }
+      ],
+      "links": [
+        { "id": "e1", "sourceId": "1", "targetId": "2", "weight": 1, "directed": false },
+        { "id": "e2", "sourceId": "2", "targetId": "3", "weight": 1, "directed": false },
+        { "id": "e3", "sourceId": "1", "targetId": "5", "weight": 1, "directed": false },
+        { "id": "e4", "sourceId": "3", "targetId": "6", "weight": 1, "directed": false },
+        { "id": "e5", "sourceId": "5", "targetId": "6", "weight": 1, "directed": false },
+        { "id": "e7", "sourceId": "6", "targetId": "7", "weight": 1, "directed": false },
+        { "id": "e8", "sourceId": "8", "targetId": "9", "weight": 1, "directed": false },
+        { "id": "e10", "sourceId": "9", "targetId": "7", "weight": 1, "directed": false },
+        { "id": "e11", "sourceId": "2", "targetId": "6", "weight": 1, "directed": false },
+        { "id": "e12", "sourceId": "3", "targetId": "7", "weight": 1, "directed": false },
+        { "id": "e13", "sourceId": "3", "targetId": "8", "weight": 1, "directed": false },
+        { "id": "e15", "sourceId": "7", "targetId": "8", "weight": 1, "directed": false },
+        { "id": "e16", "sourceId": "8", "targetId": "4", "weight": 1, "directed": false }
+      ]
+    },
+    {
+      id: 'OstPrim',
+      name: 'Граф для алгоритма Прима',
+      description: 'Невзвешенный неориентированный граф с 5 вершинами и 8 ребрами, используемый для демонстрации работы алгоритма Прима.',
+      nodes: [
+        { id: '1', label: '1', x: 200, y: 200 },
+        { id: '2', label: '2', x: 600, y: 200 },
+        { id: '3', label: '3', x: 400, y: 400 },
+        { id: '4', label: '4', x: 200, y: 600 },
+        { id: '5', label: '5', x: 600, y: 600 }
+      ],
+      links: [
+        { id: 'e1', sourceId: '1', targetId: '2', weight: 7, directed: false },
+        { id: 'e2', sourceId: '1', targetId: '3', weight: 2, directed: false },
+        { id: 'e3', sourceId: '1', targetId: '4', weight: 5, directed: false },
+        { id: 'e4', sourceId: '2', targetId: '3', weight: 3, directed: false },
+        { id: 'e5', sourceId: '2', targetId: '5', weight: 5, directed: false },
+        { id: 'e6', sourceId: '3', targetId: '4', weight: 4, directed: false },
+        { id: 'e7', sourceId: '3', targetId: '5', weight: 6, directed: false },
+        { id: 'e8', sourceId: '4', targetId: '5', weight: 3, directed: false }
+      ]
+    },
+    {
+      "id": "Dijkstra",
+      "name": "Граф для алгоритма Дейкстры",
+      "description": "Взвешенный ориентированный граф с 5 вершинами и 11 направленными ребрами, используемый для демонстрации работы алгоритма Дейкстры.",
+      "nodes": [
+        { "id": "1", "label": "1", "x": 200, "y": 400 },
+        { "id": "2", "label": "2", "x": 400, "y": 200 },
+        { "id": "3", "label": "3", "x": 600, "y": 200 },
+        { "id": "4", "label": "4", "x": 400, "y": 600 },
+        { "id": "5", "label": "5", "x": 600, "y": 600 }
+      ],
+      "links": [
+        { "id": "e1",  "sourceId": "1", "targetId": "2", "weight": 2, "directed": true },
+        { "id": "e2",  "sourceId": "1", "targetId": "4", "weight": 4, "directed": true },
+        { "id": "e3",  "sourceId": "1", "targetId": "5", "weight": 6, "directed": true },
+        { "id": "e4",  "sourceId": "2", "targetId": "3", "weight": 2, "directed": true },
+        { "id": "e5",  "sourceId": "2", "targetId": "4", "weight": 1, "directed": true },
+        { "id": "e6",  "sourceId": "2", "targetId": "5", "weight": 2, "directed": true },
+        { "id": "e7",  "sourceId": "4", "targetId": "2", "weight": 2, "directed": true },
+        { "id": "e8",  "sourceId": "4", "targetId": "5", "weight": 1, "directed": true },
+        { "id": "e9", "sourceId": "5", "targetId": "3", "weight": 1, "directed": true },
+        { "id": "e10", "sourceId": "1", "targetId": "3", "weight": 7, "directed": true }
+      ]
+    },
+    {
+      id: 'FordFulkerson',
+      name: 'Граф для алгоритма Форда-Фалкерсона',
+      description: 'Взвешенный ориентированный граф с 5 вершинами и 9 направленными ребрами, используемый для демонстрации работы алгоритма Форда-Фалкерсона. Веса рёбер представляют пропускную способность. Вершина 1 — источник, вершина 5 — сток.',
+      nodes: [
+        { id: '1', label: '1', x: 200, y: 400 },
+        { id: '2', label: '2', x: 400, y: 200 },
+        { id: '3', label: '3', x: 600, y: 400 },
+        { id: '4', label: '4', x: 400, y: 600 },
+        { id: '5', label: '5', x: 800, y: 400 }
+      ],
+      links: [
+        { id: 'e1', sourceId: '1', targetId: '2', weight: 5, directed: true },
+        { id: 'e2', sourceId: '1', targetId: '4', weight: 1, directed: true },
+        { id: 'e3', sourceId: '2', targetId: '3', weight: 1, directed: true },
+        { id: 'e4', sourceId: '2', targetId: '4', weight: 2, directed: true },
+        { id: 'e5', sourceId: '2', targetId: '5', weight: 1, directed: true },
+        { id: 'e6', sourceId: '3', targetId: '2', weight: 1, directed: true },
+        { id: 'e7', sourceId: '3', targetId: '5', weight: 1, directed: true },
+        { id: 'e8', sourceId: '4', targetId: '3', weight: 4, directed: true },
+        { id: 'e9', sourceId: '4', targetId: '5', weight: 3, directed: true }
+      ]
+    },
+    {
+      id: 'BlocksBridgesArticulation',
+      name: 'Граф для анализа блоков, мостов и точек раздела',
+      description: 'Неориентированный граф с 7 вершинами и 8 ребрами, демонстрирующий структурные компоненты: блоки, мосты и точки раздела.',
+      nodes: [
+        { id: '1', label: '1', x: 200, y: 200 },
+        { id: '2', label: '2', x: 200, y: 600 },
+        { id: '3', label: '3', x: 400, y: 400 },
+        { id: '4', label: '4', x: 600, y: 400 },
+        { id: '5', label: '5', x: 800, y: 200 },
+        { id: '6', label: '6', x: 800, y: 600 },
+        { id: '7', label: '7', x: 1000, y: 400 }
+      ],
+      links: [
+        { id: 'e1', sourceId: '1', targetId: '3', weight: 1, directed: false },
+        { id: 'e2', sourceId: '2', targetId: '3', weight: 1, directed: false },
+        { id: 'e3', sourceId: '1', targetId: '2', weight: 1, directed: false },
+        { id: 'e4', sourceId: '3', targetId: '4', weight: 1, directed: false },
+        { id: 'e5', sourceId: '4', targetId: '5', weight: 1, directed: false },
+        { id: 'e6', sourceId: '4', targetId: '6', weight: 1, directed: false },
+        { id: 'e7', sourceId: '5', targetId: '7', weight: 1, directed: false },
+        { id: 'e8', sourceId: '6', targetId: '7', weight: 1, directed: false },
+        { id: 'e9', sourceId: '4', targetId: '7', weight: 1, directed: false }
+      ]
+    }
+  ];
+
+  selectedPreset: string = 'simple-triangle';
+
+  algorithms = [
+    { id: 'bfs', name: 'Поиск в ширину (BFS)' },
+    { id: 'prim', name: 'Алгоритм Прима' },
+    { id: 'dijkstra', name: 'Алгоритм Дейкстры' },
+    { id: 'ford-fulkerson', name: 'Алгоритм Форда-Фалкерсона' },
+    { id: 'bridges', name: 'Блоки, мосты, точки раздела' }
   ];
 
   selectedAlgorithm: string = 'bfs';
-  groupedAlgorithms: Map<string, AlgorithmOption[]> = new Map();
 
   resultGraphs: GraphResult[] = [];
   currentResultIndex: number = 0;
@@ -142,17 +296,106 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
   newEdgeDirected: boolean = true;
 
   constructor(private httpService: HttpService) {
-    this.groupAlgorithmsByCategory();
+    // Загружаем начальный граф
+    this.loadInitialPreset();
   }
 
-  private groupAlgorithmsByCategory() {
-    this.groupedAlgorithms.clear();
-    this.algorithms.forEach(algorithm => {
-      if (!this.groupedAlgorithms.has(algorithm.category)) {
-        this.groupedAlgorithms.set(algorithm.category, []);
+  private loadInitialPreset() {
+    const preset = this.graphPresets.find(p => p.id === this.selectedPreset);
+    if (preset) {
+      this.loadPresetData(preset);
+    }
+  }
+
+  private loadPresetData(preset: GraphPreset) {
+    // Копируем узлы
+    this.nodes = preset.nodes.map(node => ({
+      ...node,
+      x: node.x || Math.random() * (this.width - 2 * this.margin) + this.margin,
+      y: node.y || Math.random() * (this.height - 2 * this.margin) + this.margin
+    }));
+
+    this.selectedStartNodeId = null;
+    this.selectedEndNodeId = null;
+
+    // Создаем связи, находя соответствующие узлы по их ID
+    this.links = [];
+
+    preset.links.forEach(link => {
+      const sourceNode = this.nodes.find(n => n.id === link.sourceId);
+      const targetNode = this.nodes.find(n => n.id === link.targetId);
+
+      if (!sourceNode || !targetNode) {
+        console.warn(`Не удалось найти узлы для связи ${link.id}: sourceId=${link.sourceId}, targetId=${link.targetId}`);
+        return;
       }
-      this.groupedAlgorithms.get(algorithm.category)!.push(algorithm);
+
+      this.links.push({
+        id: link.id,
+        source: sourceNode,
+        target: targetNode,
+        weight: link.weight,
+        directed: link.directed,
+        label: `${link.weight}`,
+        highlighted: false
+      });
     });
+
+    // Очищаем выделения
+    this.selectedNodeIds = [];
+    this.selectedLinkId = null;
+    this.resultGraphs = [];
+    this.currentResultIndex = 0;
+    this.errorMessage = null;
+
+    // Обновляем граф
+    if (this.simulation) {
+      this.updateGraph();
+    }
+  }
+
+  loadPreset() {
+    const preset = this.graphPresets.find(p => p.id === this.selectedPreset);
+    if (preset) {
+      if (this.nodes.length > 0) {
+        if (!confirm('Текущий граф будет заменен. Продолжить?')) {
+          return;
+        }
+      }
+      this.loadPresetData(preset);
+    }
+  }
+
+  clearGraph() {
+    if (this.nodes.length === 0) {
+      return;
+    }
+
+    if (!confirm('Очистить весь граф? Все вершины и ребра будут удалены.')) {
+      return;
+    }
+
+    this.nodes = [];
+    this.links = [];
+    this.selectedNodeIds = [];
+    this.selectedLinkId = null;
+    this.selectedStartNodeId = null;
+    this.selectedEndNodeId = null;
+    this.resultGraphs = [];
+    this.currentResultIndex = 0;
+    this.errorMessage = null;
+
+    this.updateGraph();
+  }
+
+  getSelectedPresetName(): string {
+    const preset = this.graphPresets.find(p => p.id === this.selectedPreset);
+    return preset ? preset.name : 'Не выбран';
+  }
+
+  getSelectedPresetDescription(): string {
+    const preset = this.graphPresets.find(p => p.id === this.selectedPreset);
+    return preset ? preset.description : '';
   }
 
   ngAfterViewInit() {
@@ -224,6 +467,7 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
 
     const defs = this.svg.append('defs');
 
+    // Создаем различные типы стрелок
     ['', '-reverse', '-selected', '-reverse-selected', '-highlighted', '-reverse-highlighted'].forEach(suffix => {
       const isSelected = suffix.includes('selected');
       const isHighlighted = suffix.includes('highlighted');
@@ -248,6 +492,7 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
         .attr('transform', isReverse ? 'rotate(180)' : '');
     });
 
+    // Рисуем связи (рёбра)
     const link = linkGroup.selectAll('.link')
       .data(this.links)
       .enter()
@@ -256,6 +501,7 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
       .attr('id', (d: GraphLink) => `link-${d.id}`)
       .on('click', (event: MouseEvent, d: GraphLink) => this.selectLink(d.id));
 
+    // Линия ребра
     link.append('path')
       .attr('class', 'line')
       .attr('stroke', (d: GraphLink) => {
@@ -280,6 +526,7 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
         }
       });
 
+    // Фон для метки ребра
     link.append('circle')
       .attr('class', 'label-background')
       .attr('r', 14)
@@ -291,6 +538,7 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
       })
       .attr('stroke-width', 2);
 
+    // Метка ребра (вес)
     link.append('text')
       .attr('class', 'edge-label')
       .text((d: GraphLink) => d.label)
@@ -305,6 +553,7 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
       .attr('font-size', '12px')
       .attr('pointer-events', 'none');
 
+    // Рисуем вершины
     const node = nodeGroup.selectAll('.node')
       .data(this.nodes)
       .enter()
@@ -319,12 +568,97 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
       )
       .on('click', (event: MouseEvent, d: GraphNode) => this.selectNode(d.id));
 
+    // Круг вершины
     node.append('circle')
       .attr('r', this.nodeRadius)
-      .attr('fill', (d: GraphNode) => this.selectedNodeIds.includes(d.id) ? '#4CAF50' : '#2196F3')
-      .attr('stroke', '#333')
-      .attr('stroke-width', 2);
+      .attr('fill', (d: GraphNode) => {
+        // Приоритет цветов: начальная вершина > конечная вершина > выбранные > обычные
+        if (d.id === this.selectedStartNodeId) return '#4CAF50'; // Зеленый для начальной
+        if (d.id === this.selectedEndNodeId) return '#F44336';   // Красный для конечной
+        if (this.selectedNodeIds.includes(d.id)) return '#2196F3'; // Синий для выбранных
+        return '#607D8B'; // Серый для обычных
+      })
+      .attr('stroke', (d: GraphNode) => {
+        if (d.id === this.selectedStartNodeId || d.id === this.selectedEndNodeId) {
+          return '#333'; // Темный контур для вершин алгоритма
+        }
+        return this.selectedNodeIds.includes(d.id) ? '#1565C0' : '#333';
+      })
+      .attr('stroke-width', (d: GraphNode) => {
+        if (d.id === this.selectedStartNodeId || d.id === this.selectedEndNodeId) {
+          return 3; // Толще для вершин алгоритма
+        }
+        return 2;
+      });
 
+    // Добавляем иконки для начальной и конечной вершин алгоритма
+    node.each((d: GraphNode, i: number, nodes: SVGGElement[] | ArrayLike<SVGGElement>) => {
+      const nodeElement = nodes[i] as SVGGElement;
+      const group = d3.select(nodeElement);
+
+      // Иконка для начальной вершины
+      if (d.id === this.selectedStartNodeId) {
+        group.append('text')
+          .attr('class', 'node-icon')
+          .attr('id', `icon-start-${d.id}`)
+          .text('▶')
+          .attr('x', -this.nodeRadius - 15)
+          .attr('y', 0)
+          .attr('text-anchor', 'middle')
+          .attr('dominant-baseline', 'central')
+          .attr('fill', '#4CAF50')
+          .attr('font-size', '16px')
+          .attr('font-weight', 'bold')
+          .attr('pointer-events', 'none');
+      }
+
+      // Иконка для конечной вершины
+      if (d.id === this.selectedEndNodeId) {
+        group.append('text')
+          .attr('class', 'node-icon')
+          .attr('id', `icon-end-${d.id}`)
+          .text('⏹')
+          .attr('x', this.nodeRadius + 15)
+          .attr('y', 0)
+          .attr('text-anchor', 'middle')
+          .attr('dominant-baseline', 'central')
+          .attr('fill', '#F44336')
+          .attr('font-size', '16px')
+          .attr('font-weight', 'bold')
+          .attr('pointer-events', 'none');
+      }
+
+      // Добавляем подписи для вершин алгоритма
+      if (d.id === this.selectedStartNodeId) {
+        group.append('text')
+          .attr('class', 'node-algorithm-label')
+          .attr('id', `label-start-${d.id}`)
+          .text(this.selectedAlgorithm === 'ford-fulkerson' ? 'Источник' : 'Начало')
+          .attr('x', -this.nodeRadius - 15)
+          .attr('y', 20)
+          .attr('text-anchor', 'middle')
+          .attr('fill', '#4CAF50')
+          .attr('font-size', '10px')
+          .attr('font-weight', 'bold')
+          .attr('pointer-events', 'none');
+      }
+
+      if (d.id === this.selectedEndNodeId) {
+        group.append('text')
+          .attr('class', 'node-algorithm-label')
+          .attr('id', `label-end-${d.id}`)
+          .text('Сток')
+          .attr('x', this.nodeRadius + 15)
+          .attr('y', 20)
+          .attr('text-anchor', 'middle')
+          .attr('fill', '#F44336')
+          .attr('font-size', '10px')
+          .attr('font-weight', 'bold')
+          .attr('pointer-events', 'none');
+      }
+    });
+
+    // Метка вершины (ID)
     node.append('text')
       .text((d: GraphNode) => d.label)
       .attr('text-anchor', 'middle')
@@ -333,6 +667,37 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
       .attr('font-size', '14px')
       .attr('font-weight', 'bold')
       .attr('pointer-events', 'none');
+
+    // Добавляем индикатор выбора для алгоритмов
+    if (this.selectedStartNodeId || this.selectedEndNodeId) {
+      nodeGroup.append('rect')
+        .attr('class', 'selection-indicator')
+        .attr('x', 0)
+        .attr('y', 0)
+        .attr('width', this.width)
+        .attr('height', 30)
+        .attr('fill', '#FFF3E0')
+        .attr('opacity', 0.8);
+
+      let indicatorText = '';
+      if (this.selectedStartNodeId && this.selectedEndNodeId) {
+        indicatorText = `Выбраны вершины для алгоритма: Начало (${this.selectedStartNodeId}) → Конец (${this.selectedEndNodeId})`;
+      } else if (this.selectedStartNodeId) {
+        indicatorText = `Выбрана начальная вершина: ${this.selectedStartNodeId}`;
+      }
+
+      if (indicatorText) {
+        nodeGroup.append('text')
+          .attr('class', 'selection-indicator-text')
+          .text(indicatorText)
+          .attr('x', this.width / 2)
+          .attr('y', 20)
+          .attr('text-anchor', 'middle')
+          .attr('fill', '#333')
+          .attr('font-size', '12px')
+          .attr('font-weight', 'bold');
+      }
+    }
 
     this.simulation.on('tick', () => {
       this.updatePositions(link, node);
@@ -351,8 +716,10 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
     link: d3.Selection<SVGGElement, GraphLink, SVGGElement, unknown>,
     node: d3.Selection<SVGGElement, GraphNode, SVGGElement, unknown>
   ) {
+    // Обновляем позиции вершин
     node.attr('transform', (d: GraphNode) => `translate(${d.x || 0},${d.y || 0})`);
 
+    // Обновляем позиции рёбер
     link.each((d: GraphLink, i: number, groups: SVGGElement[] | ArrayLike<SVGGElement>) => {
       const linkElement = groups[i] as SVGGElement;
       const source = d.source as GraphNode;
@@ -401,6 +768,56 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
         .attr('x', labelX)
         .attr('y', labelY);
     });
+
+    // Обновляем позиции индикатора выбора алгоритма
+    if (this.selectedStartNodeId || this.selectedEndNodeId) {
+      const indicatorRect = this.svg.select('.selection-indicator');
+      const indicatorText = this.svg.select('.selection-indicator-text');
+
+      if (indicatorRect.empty()) {
+        this.svg.append('rect')
+          .attr('class', 'selection-indicator')
+          .attr('x', 0)
+          .attr('y', 0)
+          .attr('width', this.width)
+          .attr('height', 30)
+          .attr('fill', '#FFF3E0')
+          .attr('opacity', 0.8);
+      }
+
+      if (indicatorText.empty()) {
+        let text = '';
+        if (this.selectedStartNodeId && this.selectedEndNodeId) {
+          text = `Выбраны вершины для алгоритма: Начало (${this.selectedStartNodeId}) → Конец (${this.selectedEndNodeId})`;
+        } else if (this.selectedStartNodeId) {
+          text = `Выбрана начальная вершина: ${this.selectedStartNodeId}`;
+        }
+
+        if (text) {
+          this.svg.append('text')
+            .attr('class', 'selection-indicator-text')
+            .text(text)
+            .attr('x', this.width / 2)
+            .attr('y', 20)
+            .attr('text-anchor', 'middle')
+            .attr('fill', '#333')
+            .attr('font-size', '12px')
+            .attr('font-weight', 'bold');
+        }
+      } else {
+        // Обновляем текст индикатора
+        let text = '';
+        if (this.selectedStartNodeId && this.selectedEndNodeId) {
+          text = `Выбраны вершины для алгоритма: Начало (${this.selectedStartNodeId}) → Конец (${this.selectedEndNodeId})`;
+        } else if (this.selectedStartNodeId) {
+          text = `Выбрана начальная вершина: ${this.selectedStartNodeId}`;
+        }
+        indicatorText.text(text);
+      }
+    } else {
+      // Удаляем индикатор, если вершины не выбраны
+      this.svg.selectAll('.selection-indicator, .selection-indicator-text').remove();
+    }
   }
 
   private updateSelfLoop(linkElement: SVGGElement, node: GraphNode, link: GraphLink) {
@@ -459,6 +876,18 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
   selectNode(nodeId: string, event?: MouseEvent) {
     if (event) event.stopPropagation();
 
+    const node = this.nodes.find(n => n.id === nodeId);
+    if (!node) return;
+
+    // Проверяем, не пытаемся ли мы выбрать начальную/конечную вершину
+    const isSelectingForAlgorithm = this.shouldSelectStartOrEndNode();
+
+    if (isSelectingForAlgorithm) {
+      this.handleAlgorithmNodeSelection(nodeId);
+      return;
+    }
+
+    // Оригинальная логика выбора вершин
     if (this.selectedNodeIds.includes(nodeId)) {
       this.selectedNodeIds = this.selectedNodeIds.filter(id => id !== nodeId);
     } else {
@@ -469,6 +898,44 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
       }
     }
     this.selectedLinkId = null;
+    this.updateGraph();
+  }
+
+  public shouldSelectStartOrEndNode(): boolean {
+    return this.selectedAlgorithm === 'dijkstra' ||
+      this.selectedAlgorithm === 'bfs' ||
+      this.selectedAlgorithm === 'ford-fulkerson';
+  }
+
+  private handleAlgorithmNodeSelection(nodeId: string) {
+    const node = this.nodes.find(n => n.id === nodeId);
+    if (!node) return;
+
+    if (this.selectedAlgorithm === 'dijkstra' || this.selectedAlgorithm === 'bfs') {
+      if (this.selectedStartNodeId === nodeId) {
+        this.selectedStartNodeId = null;
+      } else {
+        this.selectedStartNodeId = nodeId;
+        this.selectedEndNodeId = null; // Сбрасываем конечную вершину, если выбрана начальная
+      }
+    } else if (this.selectedAlgorithm === 'ford-fulkerson') {
+      if (!this.selectedStartNodeId) {
+        this.selectedStartNodeId = nodeId;
+      } else if (!this.selectedEndNodeId && this.selectedStartNodeId !== nodeId) {
+        this.selectedEndNodeId = nodeId;
+      } else if (this.selectedStartNodeId === nodeId) {
+        this.selectedStartNodeId = null;
+      } else if (this.selectedEndNodeId === nodeId) {
+        this.selectedEndNodeId = null;
+      }
+    }
+
+    this.updateGraph();
+  }
+
+  clearAlgorithmSelection() {
+    this.selectedStartNodeId = null;
+    this.selectedEndNodeId = null;
     this.updateGraph();
   }
 
@@ -664,6 +1131,22 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
+    // Проверка выбора вершин для алгоритмов
+    if ((this.selectedAlgorithm === 'dijkstra' || this.selectedAlgorithm === 'bfs') && !this.selectedStartNodeId) {
+      alert('Для этого алгоритма выберите начальную вершину!');
+      return;
+    }
+
+    if (this.selectedAlgorithm === 'ford-fulkerson' && (!this.selectedStartNodeId || !this.selectedEndNodeId)) {
+      alert('Для алгоритма Форда-Фалкерсона выберите начальную и конечную вершины!');
+      return;
+    }
+
+    if (this.selectedAlgorithm === 'ford-fulkerson' && this.selectedStartNodeId === this.selectedEndNodeId) {
+      alert('Начальная и конечная вершины не могут совпадать!');
+      return;
+    }
+
     this.isLoading = true;
     this.errorMessage = null;
     this.resultGraphs = [];
@@ -681,7 +1164,9 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
         weight: link.weight,
         directed: link.directed
       })),
-      algorithm: this.selectedAlgorithm
+      algorithm: this.selectedAlgorithm,
+      startNodeId: this.selectedStartNodeId || undefined,
+      endNodeId: this.selectedEndNodeId || undefined
     };
 
     this.httpService.post<GraphRequest, GraphResponse>('/graph/solve', graphData)
@@ -689,8 +1174,31 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
         next: (response) => {
           this.isLoading = false;
 
+          console.log('Получен ответ от сервера:', response); // Для отладки
+
           if (response.resultGraphs && response.resultGraphs.length > 0) {
             this.resultGraphs = response.resultGraphs;
+            this.currentResultIndex = 0;
+            this.applyGraphResult(this.resultGraphs[this.currentResultIndex]);
+
+            // Показываем сообщение, если есть несколько шагов
+            if (this.resultGraphs.length > 1) {
+              this.errorMessage = null; // Очищаем ошибки
+            }
+          } else if (response.algorithmResult) {
+            // Если есть результат, но нет промежуточных шагов
+            this.resultGraphs = [{
+              nodes: this.nodes.map(n => ({ id: n.id, label: n.label })),
+              edges: this.links.map(l => ({
+                id: l.id,
+                source: (l.source as GraphNode).id,
+                target: (l.target as GraphNode).id,
+                weight: l.weight,
+                directed: l.directed,
+                highlighted: false
+              })),
+              description: response.message || 'Результат выполнения алгоритма'
+            }];
             this.currentResultIndex = 0;
             this.applyGraphResult(this.resultGraphs[0]);
           } else if (response.message) {
@@ -764,7 +1272,14 @@ export class GraphComponent implements AfterViewInit, OnDestroy {
   }
 
   getSelectedAlgorithmDescription(): string {
-    const algo = this.algorithms.find(a => a.id === this.selectedAlgorithm);
-    return algo ? algo.description : '';
+    const descriptions: {[key: string]: string} = {
+      'bfs': 'Обход графа в ширину от первой вершины',
+      'prim': 'Построение минимального остовного дерева',
+      'dijkstra': 'Поиск кратчайших путей от одной вершины до всех остальных',
+      'ford-fulkerson': 'Поиск максимального потока в сети',
+      'bridges': 'Поиск мостов (ребер, удаление которых разрывает связность), блоков, точек раздела'
+    };
+
+    return descriptions[this.selectedAlgorithm] || '';
   }
 }
